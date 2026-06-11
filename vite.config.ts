@@ -2,6 +2,9 @@ import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 import { VitePWA } from "vite-plugin-pwa";
 
 export default defineConfig({
+  nitro: {
+    preset: "vercel",
+  },
   vite: {
     plugins: [
       VitePWA({
