@@ -4,11 +4,6 @@ import { VitePWA } from "vite-plugin-pwa";
 export default defineConfig({
   nitro: {
     preset: "vercel",
-    output: {
-      dir: ".vercel/output",
-      serverDir: ".vercel/output/functions/__nitro.func",
-      publicDir: ".vercel/output/static",
-    }
   },
   vite: {
     plugins: [
