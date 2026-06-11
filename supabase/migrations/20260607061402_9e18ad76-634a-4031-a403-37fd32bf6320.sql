@@ -1,0 +1,2 @@
+ALTER TABLE public.configuracoes_vip ADD COLUMN IF NOT EXISTS vip_plan_duration_months INTEGER DEFAULT 1;
+COMMENT ON COLUMN public.configuracoes_vip.vip_plan_duration_months IS 'Duração do plano VIP em meses';

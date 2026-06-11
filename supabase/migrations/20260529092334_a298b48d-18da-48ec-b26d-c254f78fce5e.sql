@@ -1,0 +1,1 @@
+UPDATE public.partners SET price = NULL WHERE price = 'R$ 45';

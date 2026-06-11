@@ -1,0 +1,1 @@
+ALTER FUNCTION public.get_server_time() SET search_path = public;
