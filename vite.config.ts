@@ -14,7 +14,7 @@ export default defineConfig({
     plugins: [
       VitePWA({
         registerType: "autoUpdate",
-        includeAssets: ["icon.svg"],
+        includeAssets: ["logo.png"],
         manifest: {
           name: "ALAGOAS NA PALMA DA MÃO",
           short_name: "ALAGOAS PALMA",
@@ -26,9 +26,9 @@ export default defineConfig({
           start_url: "/",
           icons: [
             {
-              src: "icon.svg",
+              src: "logo.png",
               sizes: "192x192 512x512",
-              type: "image/svg+xml",
+              type: "image/png",
               purpose: "any maskable",
             },
           ],
