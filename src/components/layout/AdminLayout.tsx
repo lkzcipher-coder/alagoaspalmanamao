@@ -89,6 +89,7 @@ const AdminLayout: React.FC<AdminLayoutProps> = ({ children, activeTab, setActiv
     { icon: ImageIcon, label: 'Banners', id: 'banners' },
     { icon: Waves, label: 'Aparência', id: 'appearance' },
     { icon: Lock, label: 'Configuração Tábua de Marés', id: 'access-rules' },
+    { icon: Waves, label: 'Tábua de Marés (Dados)', id: 'tides-data' },
     { icon: Store, label: 'Parceiros', id: 'partners' },
     { icon: Music, label: 'Vida Noturna', id: 'nightlife' },
     { icon: Ticket, label: 'Cupons', id: 'coupons' },

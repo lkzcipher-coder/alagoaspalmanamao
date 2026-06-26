@@ -810,6 +810,33 @@ export type Database = {
         }
         Relationships: []
       }
+      tides_data: {
+        Row: {
+          created_at: string
+          height: number
+          id: string
+          tide_date: string
+          tide_time: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          height: number
+          id?: string
+          tide_date: string
+          tide_time: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          height?: number
+          id?: string
+          tide_date?: string
+          tide_time?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       user_favorites: {
         Row: {
           created_at: string

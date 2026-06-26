@@ -67,7 +67,7 @@ const BannerManagement: React.FC = () => {
   };
 
   const copyInstruction = () => {
-    const text = "Crie a imagem no formato 1200x500, banner panorâmico horizontal com cantos arredondados.";
+    const text = "Crie a imagem no formato 1280x960, banner panorâmico horizontal com cantos arredondados.";
     navigator.clipboard.writeText(text);
     toast.success("Instrução copiada!");
   };
@@ -250,7 +250,7 @@ const BannerManagement: React.FC = () => {
                           <Upload className="text-gray-400 h-6 w-6" />
                         </div>
                         <p className="text-sm font-bold text-gray-500">Clique para carregar imagem</p>
-                        <p className="text-[10px] text-gray-400 uppercase font-black mt-1">Recomendado: 1200x500px</p>
+                        <p className="text-[10px] text-gray-400 uppercase font-black mt-1">Recomendado: 1280x960px</p>
                       </>
                     )}
                     <input 
@@ -289,7 +289,7 @@ const BannerManagement: React.FC = () => {
                 
                 <div className="flex items-center gap-2 p-3 bg-white/50 rounded-2xl border border-ocean/10 group">
                   <p className="text-[11px] text-ocean/70 font-medium leading-tight">
-                    Crie a imagem no formato 1200x500, banner panorâmico horizontal com cantos arredondados.
+                    Crie a imagem no formato 1280x960, banner panorâmico horizontal com cantos arredondados.
                   </p>
                   <Button 
                     variant="ghost" 

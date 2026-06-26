@@ -1,57 +1,18 @@
-import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useApp } from '@/context/AppContext';
-import { Waves, MapPin, Calendar, ArrowUp, ArrowDown, Lock, CheckCircle2, Star, Loader2, Info, Search, X, TrendingDown, TrendingUp } from 'lucide-react';
+import { Waves, MapPin, Calendar, Lock, CheckCircle2, Star, Loader2, Info } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { format, isAfter, isBefore, addHours, subHours } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import TideDayCard from './TideDayCard';
+import TideDayCard, { TideEntry } from './TideDayCard';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 
-const processTideData = (hourly: { time: string[]; sea_level_height_msl: number[] }) => {
-  const times = hourly.time.map(t => new Date(t));
-  const heights = hourly.sea_level_height_msl;
-  const offset = 0.7; // Offset to convert MSL to approx nautical datum
-
-  const hours = times.map((time, i) => ({ time, height: heights[i] + offset }));
-  
-  // Find all extremes in the entire dataset
-  const allExtremes: { time: Date; height: number; type: 'high' | 'low' }[] = [];
-  for (let i = 1; i < hours.length - 1; i++) {
-    const prev = hours[i-1].height;
-    const curr = hours[i].height;
-    const next = hours[i+1].height;
-    
-    if (curr > prev && curr > next) {
-      allExtremes.push({ time: hours[i].time, type: 'high', height: parseFloat(curr.toFixed(1)) });
-    } else if (curr < prev && curr < next) {
-      allExtremes.push({ time: hours[i].time, type: 'low', height: parseFloat(curr.toFixed(1)) });
-    }
-  }
-
-  const dailyData: { date: Date; items: { time: Date; height: number; type: 'high' | 'low' }[] }[] = [];
-  const startDate = new Date(times[0]);
-  startDate.setHours(0,0,0,0);
-
-  // We want to process 7 days (Today + 6 next days)
-  for (let d = 0; d < 7; d++) {
-    const currentDayStart = new Date(startDate);
-    currentDayStart.setDate(startDate.getDate() + d);
-
-    // Get the first 4 extremes that occur at or after currentDayStart
-    // This ensures every day always has exactly 4 tide events
-    const selected = allExtremes
-      .filter(e => e.time >= currentDayStart)
-      .slice(0, 4);
-
-    dailyData.push({
-      date: currentDayStart,
-      items: selected
-    });
-  }
-
-  return dailyData;
-};
+interface DayBucket {
+  date: Date;
+  dateKey: string; // yyyy-MM-dd
+  entry: TideEntry | null;
+}
 
 interface TideTableProps {
   isEmbedded?: boolean;
@@ -59,160 +20,133 @@ interface TideTableProps {
 
 const TideTable: React.FC<TideTableProps> = ({ isEmbedded = false }) => {
   const { isUserPremium, setShowUpsell, serverDate, financialConfig, appSettings } = useApp();
-  const [selectedDestId, setSelectedDestId] = useState<string>('');
-  const [allTideData, setAllTideData] = useState<{ date: Date; items: { time: Date; height: number; type: 'high' | 'low' }[] }[]>([]);
+  const [allTideData, setAllTideData] = useState<DayBucket[]>([]);
   const [loading, setLoading] = useState(true);
+  // Fallback imediato (caso RLS/erro bloqueie o fetch público)
+  const FALLBACK_OPEN = '10:00';
+  const FALLBACK_CLOSE = '23:00';
+  const [accessWindow, setAccessWindow] = useState<{ open: string; close: string }>({
+    open: appSettings?.tide_open_time || FALLBACK_OPEN,
+    close: appSettings?.tide_close_time || FALLBACK_CLOSE,
+  });
+  const [isLocked, setIsLocked] = useState<boolean>(true);
   const price = financialConfig?.vip_price ?? null;
   const loadingPrice = !financialConfig;
-  const [isSearching, setIsSearching] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [locationName, setLocationName] = useState('Maragogi - AL');
-  const [coords, setCoords] = useState({ lat: -9.0122, lng: -35.2225 });
-  const geocodingCache = useRef<Record<string, any>>({});
-  
-  // Regra de liberação: Janela de disponibilidade (Abertura e Fechamento)
-  const openTime = appSettings?.tide_open_time || '00:00';
-  const closeTime = appSettings?.tide_close_time || '23:59';
-  
-  const [openHour, openMinute] = openTime.split(':').map(Number);
-  const [closeHour, closeMinute] = closeTime.split(':').map(Number);
-  
-  const currentTotalMinutes = serverDate.getHours() * 60 + serverDate.getMinutes();
-  const openTotalMinutes = openHour * 60 + openMinute;
-  const closeTotalMinutes = closeHour * 60 + closeMinute;
-  
-  const isTodayReleased = currentTotalMinutes >= openTotalMinutes && currentTotalMinutes <= closeTotalMinutes;
+  const locationName = 'Paripueira - AL';
 
-  const isVip = isUserPremium() || isEmbedded; 
+  // Sync from context when it loads/changes
+  useEffect(() => {
+    if (appSettings?.tide_open_time || appSettings?.tide_close_time) {
+      setAccessWindow({
+        open: appSettings.tide_open_time || FALLBACK_OPEN,
+        close: appSettings.tide_close_time || FALLBACK_CLOSE,
+      });
+    }
+  }, [appSettings?.tide_open_time, appSettings?.tide_close_time]);
 
-  
-  const fetchTideData = useCallback(async (lat: number, lng: number) => {
+  // Fetch direto do Supabase (cache-bust) para garantir frescor das regras
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase
+        .from('app_settings')
+        .select('tide_open_time, tide_close_time')
+        .limit(1)
+        .maybeSingle();
+      if (cancelled) return;
+      if (error || !data) {
+        // RLS/erro → mantém fallback frontend (10:00–23:00)
+        console.warn('[TideTable] usando fallback de horários', error);
+        return;
+      }
+      setAccessWindow({
+        open: (data as any).tide_open_time || FALLBACK_OPEN,
+        close: (data as any).tide_close_time || FALLBACK_CLOSE,
+      });
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const openTime = accessWindow.open;
+  const closeTime = accessWindow.close;
+
+  // Normalização YYYY-MM-DD usando partes locais (timezone-safe)
+  const toDayKey = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const toMinutes = (hhmm: string): number => {
+    const [h, m] = String(hhmm).split(':').map((n) => parseInt(n, 10) || 0);
+    return h * 60 + m;
+  };
+
+  // Estado reativo: recalcula sempre que a janela ou a hora mudarem
+  useEffect(() => {
+    const todayKey = toDayKey(new Date());
+    const serverKey = toDayKey(serverDate);
+    const sameDay = todayKey === serverKey;
+    const currentMin = serverDate.getHours() * 60 + serverDate.getMinutes();
+    const openMin = toMinutes(openTime);
+    const closeMin = toMinutes(closeTime);
+    const withinWindow = currentMin >= openMin && currentMin <= closeMin;
+    setIsLocked(!(sameDay && withinWindow));
+  }, [openTime, closeTime, serverDate]);
+
+  const isTodayReleased = !isLocked;
+
+  const isVip = isUserPremium() || isEmbedded;
+
+
+  const fetchTideData = useCallback(async () => {
     try {
       setLoading(true);
-      const url = `https://marine-api.open-meteo.com/v1/marine?latitude=${lat}&longitude=${lng}&hourly=sea_level_height_msl&timezone=auto&forecast_days=8`;
-      const response = await fetch(url);
-      const data = await response.json();
-      
-      if (data.hourly) {
-        const processed = processTideData(data.hourly);
-        
-        // Validação: garantir que cada dia tenha exatamente 4 entradas (2 altas e 2 baixas)
-        const validated = processed.filter(day => {
-          const highCount = day.items.filter(i => i.type === 'high').length;
-          const lowCount = day.items.filter(i => i.type === 'low').length;
-          return day.items.length === 4 && highCount === 2 && lowCount === 2;
-        });
-
-        if (validated.length > 0) {
-          setAllTideData(validated);
-        } else {
-          console.error("Dados de maré não passaram na validação de 4 entradas por dia", processed);
-          toast.error("Não foi possível obter dados completos da maré (4 ciclos) para este local.");
-          setAllTideData([]);
-        }
-      } else {
-        toast.error("Não há dados de maré disponíveis para esta localização.");
+      // Build 7 day buckets starting from today (serverDate)
+      const start = new Date(serverDate);
+      start.setHours(0, 0, 0, 0);
+      const buckets: DayBucket[] = [];
+      for (let d = 0; d < 7; d++) {
+        const dt = new Date(start);
+        dt.setDate(start.getDate() + d);
+        buckets.push({ date: dt, dateKey: format(dt, 'yyyy-MM-dd'), entry: null });
       }
-    } catch (err) {
-      console.error("Error fetching tide data:", err);
-      toast.error("Erro ao carregar dados da maré.");
+      const startKey = buckets[0].dateKey;
+      const endKey = buckets[buckets.length - 1].dateKey;
+
+      const { data, error } = await supabase
+        .from('tides_data')
+        .select('tide_date, tide_time, height')
+        .gte('tide_date', startKey)
+        .lte('tide_date', endKey);
+
+      if (error) {
+        console.error(error);
+        toast.error('Erro ao carregar marés.');
+      } else if (data) {
+        const byDate = new Map<string, { tide_time: string; height: number }>();
+        data.forEach((row: any) => byDate.set(row.tide_date, { tide_time: row.tide_time, height: row.height }));
+        buckets.forEach(b => {
+          const row = byDate.get(b.dateKey);
+          if (row) {
+            const timeLabel = String(row.tide_time).slice(0, 5);
+            const [hh, mm] = timeLabel.split(':').map(Number);
+            const dt = new Date(b.date);
+            dt.setHours(hh, mm, 0, 0);
+            b.entry = { time: dt, timeLabel, height: Number(row.height) };
+          }
+        });
+      }
+      setAllTideData(buckets);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [serverDate]);
 
-
-  useEffect(() => {
-    fetchTideData(coords.lat, coords.lng);
-  }, [coords]);
-
-  const performSearch = useCallback(async (query: string) => {
-    const normalizedQuery = query.trim().toLowerCase();
-    if (!normalizedQuery || normalizedQuery.length < 3) return;
-
-    // Verificar cache
-    if (geocodingCache.current[normalizedQuery]) {
-      const result = geocodingCache.current[normalizedQuery];
-      setCoords({ lat: result.latitude, lng: result.longitude });
-      setLocationName(`${result.name}${result.admin1 ? `, ${result.admin1}` : ''}`);
-      setSearchQuery('');
-      return;
-    }
-
-    try {
-      setIsSearching(true);
-      // Otimização da API: language=pt e count=5
-      let url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=5&language=pt&format=json`;
-      let response = await fetch(url);
-      let data = await response.json();
-
-      // Lógica de Fallback Duplo: se vazio, tenta com " Alagoas"
-      if (!data.results || data.results.length === 0) {
-        const fallbackQuery = `${query} Alagoas`;
-        url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(fallbackQuery)}&count=5&language=pt&format=json`;
-        response = await fetch(url);
-        data = await response.json();
-      }
-
-      if (data.results && data.results.length > 0) {
-        const result = data.results[0];
-        // Guardar no cache
-        geocodingCache.current[normalizedQuery] = result;
-        
-        setCoords({ lat: result.latitude, lng: result.longitude });
-        setLocationName(`${result.name}${result.admin1 ? `, ${result.admin1}` : ''}`);
-        setSearchQuery('');
-      } else {
-        toast.error("Local não encontrado. Tente outro nome.");
-      }
-    } catch (err) {
-      console.error("Geocoding error:", err);
-      toast.error("Erro ao buscar localização.");
-    } finally {
-      setIsSearching(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (searchQuery) {
-        performSearch(searchQuery);
-      }
-    }, 600);
-
-    return () => clearTimeout(timer);
-  }, [searchQuery, performSearch]);
-
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault();
-    performSearch(searchQuery);
-  };
+  useEffect(() => { fetchTideData(); }, [fetchTideData]);
 
   const todayData = useMemo(() => allTideData[0], [allTideData]);
 
   const bestTimeRange = useMemo(() => {
-    if (!todayData) return null;
-    const lowTidesInSunlight = todayData.items.filter(item => {
-      const hour = item.time.getHours();
-      return item.type === 'low' && item.height < 0.6 && hour >= 6 && hour <= 17;
-    });
-
-    if (lowTidesInSunlight.length === 0) {
-      const anyLowInSunlight = todayData.items.filter(item => {
-        const hour = item.time.getHours();
-        return item.type === 'low' && hour >= 6 && hour <= 17;
-      });
-      if (anyLowInSunlight.length === 0) return null;
-      
-      const lowest = anyLowInSunlight.sort((a, b) => a.height - b.height)[0];
-      const start = subHours(lowest.time, 1.5);
-      const end = addHours(lowest.time, 1.5);
-      return { start, end, label: `${format(start, 'HH:mm')} às ${format(end, 'HH:mm')}` };
-    }
-
-    const lowest = lowTidesInSunlight.sort((a, b) => a.height - b.height)[0];
-    const start = subHours(lowest.time, 1.5);
-    const end = addHours(lowest.time, 1.5);
+    if (!todayData?.entry) return null;
+    const start = subHours(todayData.entry.time, 1.5);
+    const end = addHours(todayData.entry.time, 1.5);
     return { start, end, label: `${format(start, 'HH:mm')} às ${format(end, 'HH:mm')}` };
   }, [todayData]);
 
@@ -236,7 +170,7 @@ const TideTable: React.FC<TideTableProps> = ({ isEmbedded = false }) => {
     return (
       <div className="p-8 text-center mt-20">
         <Waves className="w-16 h-16 text-ocean/10 mx-auto mb-4" />
-        <p className="text-gray-400 font-bold uppercase text-[10px] tracking-widest">Nenhum dado disponível no momento.</p>
+        <p className="text-gray-400 font-bold uppercase text-[10px] tracking-widest">Horários indisponíveis no momento.</p>
       </div>
     );
   }
@@ -249,34 +183,7 @@ const TideTable: React.FC<TideTableProps> = ({ isEmbedded = false }) => {
       >
         <div className="absolute inset-0 bg-black/30 z-0" />
         <div className="relative z-10 w-full max-w-xs mx-auto text-center mb-10">
-          <h1 className="text-2xl font-black tracking-tight mb-4">TÁBUA DA MARÉ</h1>
-          
-          <form onSubmit={handleSearch} className="relative group">
-            <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none">
-              <Search size={16} className="text-white/60 group-focus-within:text-white transition-colors" />
-            </div>
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Digite a cidade (ex: Maceió, Maragogi)..."
-              className="w-full bg-white/10 backdrop-blur-md border border-white/20 rounded-2xl py-3 pl-11 pr-12 text-sm font-bold placeholder:text-white/50 focus:outline-none focus:bg-white/20 focus:border-white/40 transition-all text-white"
-            />
-            <div className="absolute inset-y-0 right-2 flex items-center gap-2">
-              {isSearching ? (
-                <Loader2 size={18} className="animate-spin text-white/60 mr-2" />
-              ) : (
-                <button 
-                  type="submit"
-                  className="p-2 hover:bg-white/10 rounded-xl transition-colors text-white/60 hover:text-white"
-                  aria-label="Pesquisar"
-                >
-                  <Search size={18} />
-                </button>
-              )}
-            </div>
-          </form>
-
+          <h1 className="text-2xl font-black tracking-tight mb-4">Tabela de Marés - Paripueira</h1>
           <div className="flex items-center justify-center gap-1 mt-3 opacity-90">
             <MapPin size={12} className="text-white" />
             <span className="text-[11px] font-black uppercase tracking-wider">{locationName}</span>
@@ -312,7 +219,7 @@ const TideTable: React.FC<TideTableProps> = ({ isEmbedded = false }) => {
             {isTodayReleased ? (
               <TideDayCard 
                 date={serverDate} 
-                items={todayData.items} 
+                entry={todayData?.entry ?? null}
                 isToday={true} 
                 serverDate={serverDate} 
               />
@@ -384,7 +291,7 @@ const TideTable: React.FC<TideTableProps> = ({ isEmbedded = false }) => {
           <div className="space-y-6">
             <TideDayCard 
               date={serverDate} 
-              items={todayData.items} 
+              entry={todayData?.entry ?? null}
               isToday={true} 
               serverDate={serverDate} 
             />
@@ -392,7 +299,7 @@ const TideTable: React.FC<TideTableProps> = ({ isEmbedded = false }) => {
               <TideDayCard 
                 key={idx}
                 date={day.date}
-                items={day.items}
+                entry={day.entry}
                 isPremium={true}
                 serverDate={serverDate}
               />

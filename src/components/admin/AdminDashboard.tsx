@@ -15,6 +15,7 @@ import StoryViewer from '@/components/turista/StoryViewer';
 import { getYouTubeInfo } from '@/lib/video-utils';
 import AdminLayout from '@/components/layout/AdminLayout';
 import BannerManagement from './BannerManagement';
+import TidesDataManagement from './TidesDataManagement';
 import { 
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose 
 } from '@/components/ui/dialog';
@@ -2556,6 +2557,7 @@ const AdminDashboard: React.FC = () => {
         </div>
       )}
       {activeTab === 'partners' && renderPartners()}
+      {activeTab === 'tides-data' && <TidesDataManagement />}
       {activeTab === 'nightlife' && renderNightlife()}
       {activeTab === 'coupons' && renderCoupons()}
       {activeTab === 'videos' && renderVideos()}

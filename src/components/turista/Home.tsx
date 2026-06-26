@@ -159,10 +159,10 @@ const Home: React.FC<HomeProps> = ({ onNavigateToCoupons, onNavigateToNightlife,
               {appSettings?.hero_subtitle || 'Economize em cada saída.'}
             </p>
             
-            <div className="flex flex-wrap items-center gap-x-1 gap-y-0 text-white/80 text-[10px] font-medium mb-4 max-w-[260px] leading-tight">
-              <span>🎟️ Shows,</span>
-              <span>🍴 restaurantes,</span>
-              <span>🌴 passeios e experiências para membros VIP.</span>
+            <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0 text-white font-semibold text-sm tracking-tight mb-4 max-w-[320px] leading-snug [text-shadow:0_1px_3px_rgba(0,0,0,0.6)] [&>span>span:first-child]:text-base [&>span>span:first-child]:drop-shadow-md">
+              <span><span>🎟️</span> Shows,</span>
+              <span><span>🍴</span> restaurantes,</span>
+              <span><span>🌴</span> passeios e experiências para membros VIP.</span>
             </div>
 
             <div className="bg-black/20 backdrop-blur-md border border-white/5 rounded-2xl py-2 px-3 flex items-center gap-2 max-w-fit">

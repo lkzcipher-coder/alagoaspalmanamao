@@ -1,46 +1,29 @@
 import React from 'react';
 import { format, subHours, addHours } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { Calendar, ArrowDown, ArrowUp, Star } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { Calendar, ArrowDown, Star } from 'lucide-react';
 
-interface TideItem {
-  time: Date;
-  height: number;
-  type: 'high' | 'low';
+export interface TideEntry {
+  time: Date;        // exact datetime built from tide_date + tide_time
+  timeLabel: string; // raw "HH:MM" from Supabase, rendered as-is
+  height: number;    // raw height from Supabase
 }
 
 interface TideDayCardProps {
   date: Date;
-  items: TideItem[];
+  entry: TideEntry | null;
   isPremium?: boolean;
   isToday?: boolean;
   serverDate: Date;
 }
 
-const TideDayCard: React.FC<TideDayCardProps> = ({ date, items, isPremium = false, isToday = false, serverDate }) => {
+const TideDayCard: React.FC<TideDayCardProps> = ({ date, entry, isToday = false }) => {
   const bestTimeRange = React.useMemo(() => {
-    const lowTidesInSunlight = items.filter(item => {
-      const hour = item.time.getHours();
-      return item.type === 'low' && item.height < 0.6 && hour >= 6 && hour <= 17;
-    });
-
-    let lowest;
-    if (lowTidesInSunlight.length === 0) {
-      const anyLowInSunlight = items.filter(item => {
-        const hour = item.time.getHours();
-        return item.type === 'low' && hour >= 6 && hour <= 17;
-      });
-      if (anyLowInSunlight.length === 0) return null;
-      lowest = anyLowInSunlight.sort((a, b) => a.height - b.height)[0];
-    } else {
-      lowest = lowTidesInSunlight.sort((a, b) => a.height - b.height)[0];
-    }
-
-    const start = subHours(lowest.time, 1.5);
-    const end = addHours(lowest.time, 1.5);
-    return { start, end, label: `${format(start, 'HH:mm')} às ${format(end, 'HH:mm')}` };
-  }, [items]);
+    if (!entry) return null;
+    const start = subHours(entry.time, 1.5);
+    const end = addHours(entry.time, 1.5);
+    return { label: `${format(start, 'HH:mm')} às ${format(end, 'HH:mm')}` };
+  }, [entry]);
 
   return (
     <div className="bg-white rounded-[32px] p-6 shadow-sm border border-gray-100 mb-6">
@@ -61,26 +44,32 @@ const TideDayCard: React.FC<TideDayCardProps> = ({ date, items, isPremium = fals
         </div>
       </div>
 
-      <div className="space-y-4">
-        {items.map((item, idx) => (
-          <div key={idx} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
-            <div className="flex items-center gap-3">
-              <div className={cn("w-8 h-8 rounded-full flex items-center justify-center", item.type === 'low' ? "bg-blue-600 text-white" : "bg-green-600 text-white")}>
-                {item.type === 'low' ? <ArrowDown size={16} strokeWidth={3} /> : <ArrowUp size={16} strokeWidth={3} />}
-              </div>
-              <span className={cn("font-bold", item.type === 'low' ? "text-blue-600" : "text-green-600")}>
-                Maré {item.type === 'low' ? 'Baixa' : 'Alta'}
-              </span>
+      {entry ? (
+        <div className="bg-gradient-to-br from-blue-50 to-white rounded-2xl p-6 border border-blue-100">
+          <div className="flex items-center gap-3 mb-5">
+            <div className="w-12 h-12 rounded-full bg-blue-600 text-white flex items-center justify-center shadow-md shadow-blue-500/30">
+              <ArrowDown size={24} strokeWidth={3} />
             </div>
-            <div className="flex items-center gap-8">
-              <span className="text-lg font-black text-ocean">{format(item.time, 'HH:mm')}</span>
-              <span className={cn("text-lg font-black min-w-[45px] text-right", item.type === 'low' ? "text-blue-600" : "text-green-600")}>
-                {item.height.toFixed(1).replace('.', ',')}m
-              </span>
+            <div className="flex flex-col">
+              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Horário de Chegada</span>
+              <span className="text-base font-black text-blue-600">Maré Baixa</span>
             </div>
           </div>
-        ))}
-      </div>
+          <div className="flex items-end justify-center gap-4">
+            <span className="text-5xl font-black text-ocean tracking-tight tabular-nums">
+              {entry.timeLabel}
+            </span>
+            <span className="text-3xl font-black text-gray-300 pb-1">|</span>
+            <span className="text-5xl font-black text-blue-600 tracking-tight tabular-nums pb-0">
+              {String(entry.height).replace('.', ',')}m
+            </span>
+          </div>
+        </div>
+      ) : (
+        <div className="text-center py-6 text-gray-400 text-sm font-bold">
+          Horários indisponíveis no momento.
+        </div>
+      )}
 
       <div className="mt-6 bg-[#0055FF] rounded-2xl p-4 flex items-center justify-between text-white shadow-lg shadow-blue-500/20">
         <div className="flex items-center gap-2">
